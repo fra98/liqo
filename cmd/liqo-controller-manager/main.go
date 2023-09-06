@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v7/controller"
 
 	discoveryv1alpha1 "github.com/liqotech/liqo/apis/discovery/v1alpha1"
+	ipamv1alpha1 "github.com/liqotech/liqo/apis/ipam/v1alpha1"
 	netv1alpha1 "github.com/liqotech/liqo/apis/net/v1alpha1"
 	offloadingv1alpha1 "github.com/liqotech/liqo/apis/offloading/v1alpha1"
 	sharingv1alpha1 "github.com/liqotech/liqo/apis/sharing/v1alpha1"
@@ -55,8 +56,10 @@ import (
 	"github.com/liqotech/liqo/pkg/consts"
 	identitymanager "github.com/liqotech/liqo/pkg/identityManager"
 	foreignclusteroperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/foreign-cluster-operator"
+	ipctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/ip-controller"
 	mapsctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/namespacemap-controller"
 	nsoffctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/namespaceoffloading-controller"
+	networkctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/network-controller"
 	nodefailurectrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/nodefailure-controller"
 	podstatusctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/podstatus-controller"
 	resourceRequestOperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/resource-request-controller"
@@ -95,6 +98,7 @@ func init() {
 	_ = discoveryv1alpha1.AddToScheme(scheme)
 	_ = offloadingv1alpha1.AddToScheme(scheme)
 	_ = virtualkubeletv1alpha1.AddToScheme(scheme)
+	_ = ipamv1alpha1.AddToScheme(scheme)
 }
 
 func main() {
@@ -493,6 +497,24 @@ func main() {
 			klog.Errorf("Unable to start the nodeFailureReconciler", err)
 			os.Exit(1)
 		}
+	}
+
+	networkReconciler := &networkctrl.NetworkReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err = networkReconciler.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the networkReconciler", err)
+		os.Exit(1)
+	}
+
+	ipReconciler := &ipctrl.IPReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err = ipReconciler.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the ipReconciler", err)
+		os.Exit(1)
 	}
 
 	klog.Info("starting manager as controller manager")
