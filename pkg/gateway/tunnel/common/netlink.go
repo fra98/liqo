@@ -60,9 +60,15 @@ func GetRemoteInterfaceIP(mode gateway.Mode) (string, error) {
 	switch mode {
 	case gateway.ModeServer:
 		ip, err := netlink.ParseIPNet(ClientInterfaceIP)
-		return ip.IP.String(), err
+		if err != nil {
+			return "", err
+		}
+		return ip.IP.String(), nil
 	case gateway.ModeClient:
 		ip, err := netlink.ParseIPNet(ServerInterfaceIP)
+		if err != nil {
+			return "", err
+		}
 		return ip.IP.String(), err
 	}
 	return "", fmt.Errorf("invalid mode %v", mode)

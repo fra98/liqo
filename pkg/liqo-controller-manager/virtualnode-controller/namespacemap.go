@@ -41,7 +41,7 @@ func (r *VirtualNodeReconciler) ensureNamespaceMapPresence(ctx context.Context, 
 	}
 	nm, err := getters.GetNamespaceMapByLabel(ctx, r.Client, vn.Namespace, labels.SelectorFromSet(l))
 	if err != nil && !kerrors.IsNotFound(err) {
-		klog.Errorf("%s -> unable to retrieve NamespaceMap %q", err, nm.Name)
+		klog.Errorf("%s -> unable to retrieve NamespaceMap associated with clusterID %s", err, vn.Spec.ClusterIdentity.ClusterID)
 		return err
 	} else if err == nil {
 		klog.V(4).Infof("NamespaceMap %q already exists in namespace %s", nm.Name, nm.Namespace)
