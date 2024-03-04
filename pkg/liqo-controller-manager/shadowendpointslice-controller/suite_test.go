@@ -15,6 +15,7 @@
 package shadowendpointslicectrl
 
 import (
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,11 +23,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	discoveryv1alpha1 "github.com/liqotech/liqo/apis/discovery/v1alpha1"
 	vkv1alpha1 "github.com/liqotech/liqo/apis/virtualkubelet/v1alpha1"
 	"github.com/liqotech/liqo/pkg/utils/testutil"
 )
+
+var testEnv *envtest.Environment
+var k8sClient client.Client
 
 func TestShadowEndpointSliceController(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -36,8 +42,25 @@ func TestShadowEndpointSliceController(t *testing.T) {
 var _ = BeforeSuite(func() {
 	testutil.LogsToGinkgoWriter()
 
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "deployments", "liqo", "crds")},
+		ErrorIfCRDPathMissing: true,
+	}
+	cfg, err := testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+
 	Expect(corev1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(discoveryv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(vkv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(discoveryv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
 })

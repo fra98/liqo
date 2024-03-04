@@ -30,7 +30,6 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	discoveryv1alpha1 "github.com/liqotech/liqo/apis/discovery/v1alpha1"
 	vkv1alpha1 "github.com/liqotech/liqo/apis/virtualkubelet/v1alpha1"
@@ -54,12 +53,10 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 				Namespace: shadowEpsNamespace,
 			},
 		}
-		ctx               context.Context
-		res               ctrl.Result
-		err               error
-		buffer            *bytes.Buffer
-		fakeClientBuilder *fake.ClientBuilder
-		fakeClient        client.WithWatch
+		ctx    context.Context
+		res    ctrl.Result
+		err    error
+		buffer *bytes.Buffer
 
 		testShadowEps *vkv1alpha1.ShadowEndpointSlice
 		testEps       *discoveryv1.EndpointSlice
@@ -88,6 +85,9 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 						ClusterID:   testFcName,
 						ClusterName: testFcID,
 					},
+					OutgoingPeeringEnabled: "Yes",
+					IncomingPeeringEnabled: "No",
+					ForeignAuthURL:         "https://10.0.0.1",
 				},
 				Status: discoveryv1alpha1.ForeignClusterStatus{
 					PeeringConditions: []discoveryv1alpha1.PeeringCondition{
@@ -132,7 +132,7 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 							},
 							Addresses: []string{"192.168.0.1"},
 						}},
-						Ports:       []discoveryv1.EndpointPort{{Name: pointer.String("HTTPS")}},
+						Ports:       []discoveryv1.EndpointPort{{Name: pointer.String("https")}},
 						AddressType: discoveryv1.AddressTypeFQDN,
 					},
 				},
@@ -145,20 +145,23 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 					Name:      shadowEpsName,
 					Namespace: shadowEpsNamespace,
 					Labels: map[string]string{
-						"existing-key": "existing-value",
+						"existing-key":               "existing-value",
+						discoveryv1.LabelManagedBy:   forge.EndpointSliceManagedBy,
+						liqoconsts.ManagedByLabelKey: liqoconsts.ManagedByShadowEndpointSliceValue,
 					},
 					Annotations: map[string]string{
 						"existing-key": "existing-value",
 					},
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							Kind:               "ShadowEndpointSlice",
-							Name:               shadowEpsName,
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
-						},
-					},
 				},
+				Endpoints: []discoveryv1.Endpoint{{
+					NodeName: pointer.String(testFcName),
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: pointer.Bool(true),
+					},
+					Addresses: []string{"192.168.0.1"},
+				}},
+				AddressType: discoveryv1.AddressTypeFQDN,
+				Ports:       []discoveryv1.EndpointPort{{Name: pointer.String("https")}},
 			}
 
 		}
@@ -168,25 +171,24 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		ctx = context.TODO()
 		buffer = &bytes.Buffer{}
 		klog.SetOutput(buffer)
-
-		fakeClientBuilder = fake.NewClientBuilder().WithScheme(scheme.Scheme)
 	})
 
 	JustBeforeEach(func() {
 		r := &Reconciler{
-			Client: fakeClient,
+			Client: k8sClient,
 			Scheme: scheme.Scheme,
 		}
-		_, err = r.Reconcile(ctx, req)
+
+		res, err = r.Reconcile(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
 		klog.Flush()
 	})
 
-	When("shadowendpointslice is not found", func() {
-		BeforeEach(func() {
-			fakeClient = fakeClientBuilder.Build()
-		})
+	AfterEach(func() {
+		deleteAllResources(ctx, shadowEpsNamespace)
+	})
 
+	When("shadowendpointslice is not found", func() {
 		It("should ignore it", func() {
 			Expect(res).To(BeZero())
 			Expect(buffer.String()).To(ContainSubstring(fmt.Sprintf("shadowendpointslice %q not found", req.NamespacedName)))
@@ -198,7 +200,9 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 			testShadowEps = newShadowEps(true)
 			testEps = newEps()
 			testFc = newFc(true, true)
-			fakeClient = fakeClientBuilder.WithObjects(testShadowEps, testEps, testFc).Build()
+			Expect(k8sClient.Create(ctx, testShadowEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testFc)).To(Succeed())
 		})
 
 		It("should output the correct log", func() {
@@ -208,7 +212,7 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 
 		It("should update endpointslice metadata to shadowendpointslice metadata", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.Labels).To(HaveKeyWithValue(liqoconsts.ManagedByLabelKey, liqoconsts.ManagedByShadowEndpointSliceValue))
 			for key, value := range testShadowEps.Labels {
 				Expect(eps.Labels).To(HaveKeyWithValue(key, value))
@@ -220,37 +224,26 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 
 		It("should keep existing labels and annotations", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.Labels).To(HaveKeyWithValue("existing-key", "existing-value"))
 			Expect(eps.Annotations).To(HaveKeyWithValue("existing-key", "existing-value"))
 		})
 
 		It("should replicate endpoints, addressType and ports", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.AddressType).To(Equal(testShadowEps.Spec.Template.AddressType))
 			Expect(eps.Endpoints).To(Equal(testShadowEps.Spec.Template.Endpoints))
 			Expect(eps.Ports).To(Equal(testShadowEps.Spec.Template.Ports))
 		})
-
-		It("should keep owner reference", func() {
-			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
-			Expect(eps.GetOwnerReferences()).To(ContainElement(
-				MatchFields(IgnoreExtras, Fields{
-					"Kind": Equal("ShadowEndpointSlice"),
-					"Name": Equal(shadowEpsName),
-				})),
-			)
-		})
-
 	})
 
 	When("endpointslice not already created", func() {
 		BeforeEach(func() {
 			testShadowEps = newShadowEps(true)
 			testFc = newFc(true, true)
-			fakeClient = fakeClientBuilder.WithObjects(testShadowEps, testFc).Build()
+			Expect(k8sClient.Create(ctx, testShadowEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testFc)).To(Succeed())
 		})
 
 		It("should output the correct log", func() {
@@ -260,7 +253,7 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 
 		It("should create endpointslice metadata with shadowendpointslice metadata", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.Labels).To(HaveKeyWithValue(liqoconsts.ManagedByLabelKey, liqoconsts.ManagedByShadowEndpointSliceValue))
 			for key, value := range testShadowEps.Labels {
 				Expect(eps.Labels).To(HaveKeyWithValue(key, value))
@@ -268,12 +261,11 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 			for key, value := range testShadowEps.Annotations {
 				Expect(eps.Annotations).To(HaveKeyWithValue(key, value))
 			}
-
 		})
 
 		It("should replicate endpoints, addressType and ports", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.AddressType).To(Equal(testShadowEps.Spec.Template.AddressType))
 			Expect(eps.Endpoints).To(Equal(testShadowEps.Spec.Template.Endpoints))
 			Expect(eps.Ports).To(Equal(testShadowEps.Spec.Template.Ports))
@@ -281,7 +273,7 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 
 		It("should set owner reference", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			Expect(eps.GetOwnerReferences()).To(ContainElement(
 				MatchFields(IgnoreExtras, Fields{
 					"Kind": Equal("ShadowEndpointSlice"),
@@ -295,12 +287,13 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		BeforeEach(func() {
 			testShadowEps = newShadowEps(true)
 			testFc = newFc(false, true)
-			fakeClient = fakeClientBuilder.WithObjects(testShadowEps, testFc).Build()
+			Expect(k8sClient.Create(ctx, testShadowEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testFc)).To(Succeed())
 		})
 
 		It("should set remote endpoints to not ready", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			for i := range eps.Endpoints {
 				Expect(eps.Endpoints[i].Conditions.Ready).To(PointTo(BeFalse()))
 			}
@@ -311,12 +304,13 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		BeforeEach(func() {
 			testShadowEps = newShadowEps(true)
 			testFc = newFc(true, false)
-			fakeClient = fakeClientBuilder.WithObjects(testShadowEps, testFc).Build()
+			Expect(k8sClient.Create(ctx, testShadowEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testFc)).To(Succeed())
 		})
 
 		It("should set remote endpoints to not ready", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			for i := range eps.Endpoints {
 				Expect(eps.Endpoints[i].Conditions.Ready).To(PointTo(BeFalse()))
 			}
@@ -327,15 +321,22 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		BeforeEach(func() {
 			testShadowEps = newShadowEps(true)
 			testFc = newFc(false, false)
-			fakeClient = fakeClientBuilder.WithObjects(testShadowEps, testFc).Build()
+			Expect(k8sClient.Create(ctx, testShadowEps)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testFc)).To(Succeed())
 		})
 
 		It("should set remote endpoints to not ready", func() {
 			eps := discoveryv1.EndpointSlice{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
 			for i := range eps.Endpoints {
 				Expect(eps.Endpoints[i].Conditions.Ready).To(PointTo(BeFalse()))
 			}
 		})
 	})
 })
+
+func deleteAllResources(ctx context.Context, ns string) {
+	Expect(k8sClient.DeleteAllOf(ctx, &vkv1alpha1.ShadowEndpointSlice{}, client.InNamespace(ns))).Should(Succeed())
+	Expect(k8sClient.DeleteAllOf(ctx, &discoveryv1.EndpointSlice{}, client.InNamespace(ns))).Should(Succeed())
+	Expect(k8sClient.DeleteAllOf(ctx, &discoveryv1alpha1.ForeignCluster{})).Should(Succeed())
+}
