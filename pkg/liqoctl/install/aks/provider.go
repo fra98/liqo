@@ -79,7 +79,7 @@ func (o *Options) RegisterFlags(cmd *cobra.Command) {
 		"The Azure ResourceGroup name of the Virtual Network (defaults to --resource-group-name if not provided)")
 	cmd.Flags().StringVar(&o.fqdn, "fqdn", "", "The private AKS cluster fqdn")
 	cmd.Flags().BoolVar(&o.privateLink, "private-link", false, "Use the private FQDN for the API server")
-	cmd.Flags().StringVar(&o.PodCIDR, "pod-cidr", "10.224.0.0/16", "The Pod CIDR of the cluster, only used for AzureCNI clusters with no defined subnet")
+	cmd.Flags().StringVar(&o.PodCIDR, "pod-cidr", "", "The Pod CIDR of the cluster, only used for AzureCNI clusters with no defined subnet")
 
 	utilruntime.Must(cmd.MarkFlagRequired("resource-group-name"))
 	utilruntime.Must(cmd.MarkFlagRequired("resource-name"))
@@ -93,6 +93,10 @@ func (o *Options) Initialize(ctx context.Context) error {
 	if o.vnetResourceGroupName == "" {
 		// use AKS resource group if vnet resource group not provided
 		o.vnetResourceGroupName = o.resourceGroupName
+	}
+
+	if o.PodCIDR == "" {
+		o.PodCIDR = "10.224.0.0/16"
 	}
 
 	o.Printer.Verbosef("AKS SubscriptionID: %q", o.subscriptionID)

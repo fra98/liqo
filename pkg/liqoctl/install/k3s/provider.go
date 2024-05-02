@@ -54,12 +54,19 @@ or
 // RegisterFlags registers the flags for the given provider.
 func (o *Options) RegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.APIServer, "api-server-url", "", "The Kubernetes API Server URL (defaults to the one specified in the kubeconfig)")
-	cmd.Flags().StringVar(&o.PodCIDR, "pod-cidr", "10.42.0.0/16", "The Pod CIDR of the cluster")
-	cmd.Flags().StringVar(&o.ServiceCIDR, "service-cidr", "10.43.0.0/16", "The Service CIDR of the cluster")
+	cmd.Flags().StringVar(&o.PodCIDR, "pod-cidr", "", "The Pod CIDR of the cluster")
+	cmd.Flags().StringVar(&o.ServiceCIDR, "service-cidr", "", "The Service CIDR of the cluster")
 }
 
 // Initialize performs the initialization tasks to retrieve the provider-specific parameters.
-func (o *Options) Initialize(ctx context.Context) error {
+func (o *Options) Initialize(_ context.Context) error {
+	if o.PodCIDR == "" {
+		o.PodCIDR = "10.42.0.0/16"
+	}
+	if o.ServiceCIDR == "" {
+		o.ServiceCIDR = "10.43.0.0/16"
+	}
+
 	// Typically, the URL refers to a localhost address.
 	o.DisableAPIServerSanityChecks = true
 	return nil
