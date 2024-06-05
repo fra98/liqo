@@ -53,7 +53,7 @@ import (
 	remoteresourceslicecontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/remoteresourceslice-controller"
 	virtualnodecreatorcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/authentication/virtualnodecreator-controller"
 	foreignclustercontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/foreigncluster-controller"
-	offloadingipmapping "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/ipmapping"
+	ipmapping "github.com/liqotech/liqo/pkg/liqo-controller-manager/ipmapping"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/webhooks/firewallconfiguration"
 	fcwh "github.com/liqotech/liqo/pkg/liqo-controller-manager/webhooks/foreigncluster"
 	ipwh "github.com/liqotech/liqo/pkg/liqo-controller-manager/webhooks/ip"
@@ -427,7 +427,7 @@ func main() {
 
 	// OFFLOADING MODULE & NETWORKING MODULE
 	if *offloadingEnabled && *networkingEnabled {
-		offloadedPodReconciler := offloadingipmapping.NewOffloadedPodReconciler(
+		offloadedPodReconciler := ipmapping.NewOffloadedPodReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			mgr.GetEventRecorderFor("offloadedpod-controller"),
@@ -437,7 +437,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		configurationReconciler := offloadingipmapping.NewConfigurationReconciler(
+		configurationReconciler := ipmapping.NewConfigurationReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			mgr.GetEventRecorderFor("configuration-controller"),
