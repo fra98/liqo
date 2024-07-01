@@ -77,8 +77,8 @@ local-path-storage   local-path-provisioner-85494db59d-skd55      1/1     Runnin
 
 You will now install Liqo on both clusters, using the following characterizing names:
 
-* **rome**: the *local* cluster, where you will deploy and control the applications.
-* **milan**: the *remote* cluster, where part of your workloads will be offloaded to.
+* **rome**: the *local* (**consumer**) cluster, where you will deploy and control the applications.
+* **milan**: the *remote* (**provider**) cluster, where part of your workloads will be offloaded to.
 
 You can install Liqo on the *Rome* cluster by launching:
 
@@ -97,11 +97,11 @@ liqoctl install kind --cluster-id milan --kubeconfig "$KUBECONFIG_MILAN"
 On both clusters, you should see the following output:
 
 ```text
- INFO  Kubernetes clients successfully initialized
  INFO  Installer initialized
  INFO  Cluster configuration correctly retrieved
  INFO  Installation parameters correctly generated
  INFO  All Set! You can now proceed establishing a peering (liqoctl peer --help for more information)
+ INFO  Make sure to use the same version of Liqo on all remote clusters
 ```
 
 And the Liqo pods should be up and running:
@@ -112,41 +112,73 @@ kubectl get pods -n liqo
 
 ```text
 NAME                                       READY   STATUS    RESTARTS   AGE
-liqo-auth-74c795d84c-x2p6h                 1/1     Running   0          2m8s
-liqo-controller-manager-6c688c777f-4lv9d   1/1     Running   0          2m8s
-liqo-crd-replicator-6c64df5457-bq4tv       1/1     Running   0          2m8s
-liqo-gateway-78cf7bb86b-pkdpt              1/1     Running   0          2m8s
-liqo-metric-agent-5667b979c7-snmdg         1/1     Running   0          2m8s
-liqo-network-manager-5b5cdcfcf7-scvd9      1/1     Running   0          2m8s
-liqo-proxy-6674dd7bbd-kr2ls                1/1     Running   0          2m8s
-liqo-route-7wsrx                           1/1     Running   0          2m8s
-liqo-route-sz75m                           1/1     Running   0          2m8s
+liqo-controller-manager-6888ccc645-hnxrl   1/1     Running   0          8m15s
+liqo-crd-replicator-5f5b448bd-ldz67        1/1     Running   0          8m15s
+liqo-fabric-28tb5                          1/1     Running   0          8m15s
+liqo-fabric-dvjgk                          1/1     Running   0          8m15s
+liqo-ipam-658dcbcb66-z4vhq                 1/1     Running   0          8m15s
+liqo-metric-agent-597c5dbcfd-bzg2t         1/1     Running   0          8m15s
+liqo-proxy-599958d9b8-6fzfc                1/1     Running   0          8m15s
+liqo-webhook-8fbd8c664-pxrfh               1/1     Running   0          8m15s
 ```
 
-In addition, you can check the installation status, and the main Liqo configuration parameters, using:
-
-```bash
-liqoctl status
-```
 
 ## Peer two clusters
 
 Once Liqo is installed in your clusters, you can establish new *peerings*.
-In this example, since the two API Servers are mutually reachable, you will use the [out-of-band peering approach](FeaturesPeeringOutOfBandControlPlane).
+In this example, we will leverage the *liqoctl peer* command to peer the two clusters.
+This approach requires the user to have access to the kubeconfig of both clusters.
 
-First, get the *peer command* from the *Milan* cluster:
-
-```bash
-liqoctl generate peer-command --kubeconfig "$KUBECONFIG_MILAN"
-```
-
-Second, copy and paste the command in the *Rome* cluster:
+Let's issue the peering command from the consumer cluster, which is Rome in this case.
+The `--remote-kubeconfig` flag is used to specify the kubeconfig of the remote provider cluster, which is Milan in this case.
 
 ```bash
-liqoctl peer out-of-band milan --auth-url [redacted] --cluster-id [redacted] --auth-token [redacted]
+liqoctl peer --remote-kubeconfig "$KUBECONFIG_MILAN" --server-service-type NodePort
 ```
 
-Now, the Liqo control plane in the *Rome* cluster will contact the provided authentication endpoint providing the token to the *Milan* cluster to get its Kubernetes identity.
+The peering should be completed successfully after a few seconds or minutes, depending on the downloading time of the new images.
+The output should look like this:
+
+```text
+ INFO   (local) Network configuration correctly retrieved
+ INFO   (remote) Network configuration correctly retrieved
+ INFO   (local) Network configuration correctly set up
+ INFO   (remote) Network configuration correctly set up
+ INFO   (local) Configuration applied successfully
+ INFO   (remote) Configuration applied successfully
+ INFO   (local) Network correctly initialized
+ INFO   (remote) Network correctly initialized
+ INFO   (remote) Gateway server correctly set up
+ INFO   (remote) Gateway pod gw-rome is ready
+ INFO   (remote) Gateway server Service created successfully
+ INFO   (local) Gateway client correctly set up
+ INFO   (local) Gateway pod gw-milan is ready
+ INFO   (remote) Gateway server Secret created successfully
+ INFO   (local) Public key correctly created
+ INFO   (local) Gateway client Secret created successfully
+ INFO   (remote) Public key correctly created
+ INFO   (remote) Connection created successfully
+ INFO   (local) Connection created successfully
+ INFO   (local) Connection is established
+ INFO   (remote) Connection is established
+ INFO   (local) Tenant namespace correctly ensured
+ INFO   (remote) Tenant namespace correctly ensured
+ INFO   (remote) Nonce secret ensured
+ INFO   (remote) Nonce generated successfully
+ INFO   (remote) Nonce retrieved
+ INFO   (local) Signed nonce secret ensured
+ INFO   (local) Nonce is signed
+ INFO   (local) Signed nonce retrieved
+ INFO   (local) Tenant correctly generated
+ INFO   (remote) Tenant correctly applied on provider cluster
+ INFO   (remote) Tenant status is filled
+ INFO   (remote) Identity correctly generated
+ INFO   (local) Identity correctly applied on consumer cluster
+ INFO   (local) Identity status is filled
+ INFO   (local) ResourceSlice created
+ INFO   (local) ResourceSlice authentication: Accepted
+ INFO   (local) ResourceSlice resources: Accepted
+```
 
 You can check the peering status by running:
 
@@ -154,14 +186,14 @@ You can check the peering status by running:
 kubectl get foreignclusters
 ```
 
-The output should look like the following, indicating that the cross-cluster network tunnel has been established, and an outgoing peering is currently active (i.e., the *Rome* cluster can offload workloads to the *Milan* one, but not vice versa):
+The output should look like the following, indicating the relationship the foreign cluster has with the local cluster:
 
 ```text
-NAME    TYPE        OUTGOING PEERING   INCOMING PEERING   NETWORKING    AUTHENTICATION   AGE
-milan   OutOfBand   Established        None               Established   Established      12s
+NAME    ROLE       AGE
+milan   Provider   52s
 ```
 
-At the same time, you should see a virtual node (`liqo-milan`) in addition to your physical nodes:
+At the same time, you should see a virtual node (`milan`) in addition to your physical nodes:
 
 ```bash
 kubectl get nodes
@@ -169,15 +201,9 @@ kubectl get nodes
 
 ```text
 NAME                 STATUS   ROLES           AGE     VERSION
-liqo-milan           Ready    agent           27s     v1.25.0
-rome-control-plane   Ready    control-plane   7m6s    v1.25.0
-rome-worker          Ready    <none>          6m33s   v1.25.0
-```
-
-In addition, you can check the peering status, and retrieve more advanced information, using:
-
-```bash
-liqoctl status peer milan
+rome-control-plane   Ready    control-plane   8m33s   v1.30.0
+rome-worker          Ready    <none>          8m13s   v1.30.0
+milan                Ready    agent           44s     v1.30.0
 ```
 
 ## Leverage remote resources
@@ -223,7 +249,7 @@ Hence, each pod can be scheduled either in the *local* cluster or in the *remote
 ```
 
 Now you can check the status of the pods.
-The output should be similar to the one below, confirming that one `nginx` pod is running locally; while the other is hosted by the virtual node (i.e., `liqo-milan`).
+The output should be similar to the one below, confirming that one `nginx` pod is running locally; while the other is hosted by the virtual node (i.e., `milan`).
 
 ```bash
 kubectl get pod -n liqo-demo -o wide
@@ -234,7 +260,7 @@ And the output should look like this:
 ```text
 NAME           READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
 nginx-local    1/1     Running   0          10s   10.200.1.11   rome-worker   <none>           <none>
-nginx-remote   1/1     Running   0          9s    10.202.1.10   liqo-milan    <none>           <none>
+nginx-remote   1/1     Running   0          9s    10.202.1.10   milan         <none>           <none>
 ```
 
 #### Check the pod connectivity
@@ -338,24 +364,24 @@ watch kubectl get pods -n liqo-demo -o wide
 ```
 
 At steady-state, you should see an output similar to the following.
-Different pods may be hosted by either the local nodes (*rome-worker* in the example below) or remote cluster (*liqo-milan* in the example below), depending on the scheduling decisions.
+Different pods may be hosted by either the local nodes (*rome-worker* in the example below) or remote cluster (*milan* in the example below), depending on the scheduling decisions.
 
 ```text
 NAME                                     READY   STATUS    RESTARTS        AGE     IP            NODE          NOMINATED NODE   READINESS GATES
-adservice-84cdf76d7d-6s8pq               1/1     Running   0               5m1s    10.202.1.11   liqo-milan    <none>           <none>
-cartservice-5c9c9c7b4-w49gr              1/1     Running   0               5m1s    10.202.1.12   liqo-milan    <none>           <none>
-checkoutservice-6cb9bb8cd8-5w2ht         1/1     Running   0               5m1s    10.202.1.13   liqo-milan    <none>           <none>
-currencyservice-7d4bd86676-5b5rq         1/1     Running   0               5m1s    10.202.1.14   liqo-milan    <none>           <none>
-emailservice-c9b45cdb-6zjrk              1/1     Running   0               5m1s    10.202.1.15   liqo-milan    <none>           <none>
+adservice-84cdf76d7d-6s8pq               1/1     Running   0               5m1s    10.202.1.11   milan         <none>           <none>
+cartservice-5c9c9c7b4-w49gr              1/1     Running   0               5m1s    10.202.1.12   milan         <none>           <none>
+checkoutservice-6cb9bb8cd8-5w2ht         1/1     Running   0               5m1s    10.202.1.13   milan         <none>           <none>
+currencyservice-7d4bd86676-5b5rq         1/1     Running   0               5m1s    10.202.1.14   milan         <none>           <none>
+emailservice-c9b45cdb-6zjrk              1/1     Running   0               5m1s    10.202.1.15   milan         <none>           <none>
 frontend-58b9b98d84-hg4xz                1/1     Running   0               5m1s    10.200.1.13   rome-worker   <none>           <none>
-loadgenerator-5f8cd58cd4-wvqqq           1/1     Running   0               5m1s    10.202.1.16   liqo-milan    <none>           <none>
+loadgenerator-5f8cd58cd4-wvqqq           1/1     Running   0               5m1s    10.202.1.16   milan         <none>           <none>
 nginx-local                              1/1     Running   0               7m35s   10.200.1.11   rome-worker   <none>           <none>
-nginx-remote                             1/1     Running   0               7m34s   10.202.1.10   liqo-milan    <none>           <none>
-paymentservice-69558cf7bb-v4zjw          1/1     Running   0               5m      10.202.1.17   liqo-milan    <none>           <none>
-productcatalogservice-55c58b57cb-k8mfq   1/1     Running   0               5m      10.202.1.18   liqo-milan    <none>           <none>
-recommendationservice-55cd66cf64-6fz9w   1/1     Running   0               5m      10.202.1.19   liqo-milan    <none>           <none>
-redis-cart-5d45978b94-wjd97              1/1     Running   0               5m      10.202.1.20   liqo-milan    <none>           <none>
-shippingservice-5df47fc86-f867j          1/1     Running   0               4m59s   10.202.1.21   liqo-milan    <none>           <none>
+nginx-remote                             1/1     Running   0               7m34s   10.202.1.10   milan         <none>           <none>
+paymentservice-69558cf7bb-v4zjw          1/1     Running   0               5m      10.202.1.17   milan         <none>           <none>
+productcatalogservice-55c58b57cb-k8mfq   1/1     Running   0               5m      10.202.1.18   milan         <none>           <none>
+recommendationservice-55cd66cf64-6fz9w   1/1     Running   0               5m      10.202.1.19   milan         <none>           <none>
+redis-cart-5d45978b94-wjd97              1/1     Running   0               5m      10.202.1.20   milan         <none>           <none>
+shippingservice-5df47fc86-f867j          1/1     Running   0               4m59s   10.202.1.21   milan         <none>           <none>
 ```
 
 ### Access the demo application
@@ -395,7 +421,7 @@ Every pod that was offloaded to a remote cluster is going to be rescheduled onto
 Similarly, make sure that all the peerings are revoked:
 
 ```bash
-liqoctl unpeer out-of-band milan
+liqoctl unpeer --remote-kubeconfig "$KUBECONFIG_MILAN" 
 ```
 
 At the end of the process, the virtual node is removed from the local cluster.
