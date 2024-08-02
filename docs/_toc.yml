@@ -45,7 +45,7 @@ subtrees:
           - file: advanced/peering/namespace-offloading.md
       - file: advanced/disable-networking.md
       - file: advanced/external-ip-remapping.md
-      - file: advanced/multiple-resource-slices.md
+      - file: advanced/multiple-virtualnodes.md
       - file: advanced/kubernetes-api.md
 
   - caption: Contributing
