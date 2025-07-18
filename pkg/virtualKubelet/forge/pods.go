@@ -148,6 +148,65 @@ func LocalRejectedPodStatus(local *corev1.PodStatus, phase corev1.PodPhase, reas
 	return *local
 }
 
+// LocalFakeReadyPod forges the status of a local ready pod.
+func LocalFakeReadyPod(local *corev1.Pod) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: *local.ObjectMeta.DeepCopy(),
+		Status:     LocalFakeReadyPodStatus(local.Status.DeepCopy(), local.Spec.Containers),
+	}
+}
+
+// LocalFakeReadyPodStatus forges the status of the local ready pod.
+func LocalFakeReadyPodStatus(localPodStatus *corev1.PodStatus, localContainers []corev1.Container) corev1.PodStatus {
+	localPodStatus.Phase = corev1.PodRunning
+	localPodStatus.Conditions = []corev1.PodCondition{
+		{
+			Type:               corev1.PodReady,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               corev1.PodScheduled,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               corev1.PodReadyToStartContainers,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               corev1.PodInitialized,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               corev1.ContainersReady,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+
+	// Construct the container statuses, assuming all containers are ready.
+	localPodStatus.ContainerStatuses = make([]corev1.ContainerStatus, 0, len(localContainers))
+	for i := range localContainers {
+		localPodStatus.ContainerStatuses = append(localPodStatus.ContainerStatuses, corev1.ContainerStatus{
+			Name:         localContainers[i].Name,
+			Ready:        true,
+			RestartCount: 0,
+			Started:      ptr.To(true),
+			State: corev1.ContainerState{
+				Running: &corev1.ContainerStateRunning{
+					StartedAt: metav1.Now(),
+				},
+			},
+			Image: localContainers[i].Image,
+		})
+	}
+
+	return *localPodStatus
+}
+
 // RemoteShadowPod forges the reflected shadowpod, given the local one.
 func RemoteShadowPod(local *corev1.Pod, remote *offloadingv1beta1.ShadowPod,
 	targetNamespace string, forgingOpts *ForgingOpts, mutators ...RemotePodSpecMutator) *offloadingv1beta1.ShadowPod {

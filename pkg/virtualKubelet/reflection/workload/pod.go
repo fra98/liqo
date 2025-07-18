@@ -305,6 +305,23 @@ func (fpr *FallbackPodReflector) Handle(ctx context.Context, key types.Namespace
 		return nil
 	}
 
+	// If the local pod is a DaemonSet, then it should not run on a virtual node by design.
+	// We pretend the pod is Ready and all its containers as running.
+	if isDaemonset(local) {
+		klog.V(4).Infof("Local pod %q is a DaemonSet, marking it as Ready", klog.KObj(local))
+		pod := forge.LocalFakeReadyPod(local)
+		_, err = fpr.localPodsClient(key.Namespace).UpdateStatus(ctx, pod, metav1.UpdateOptions{FieldManager: forge.ReflectionFieldManager})
+		if err != nil {
+			klog.Errorf("Failed to mark local pod %q as Ready: %v", klog.KObj(local), err)
+			fpr.recorder.Event(local, corev1.EventTypeWarning, forge.EventReflectionDisabled, forge.EventReflectionDisabledMsg(key.Namespace))
+			return err
+		}
+		klog.Infof("Daemonset pod %q successfully marked as Ready", klog.KObj(local))
+		fpr.recorder.Event(local, corev1.EventTypeNormal, forge.EventReflectionDisabled, forge.EventReflectionDisabledMsg(key.Namespace))
+		tracer.Step("Updated the local pod status")
+		return nil
+	}
+
 	// Otherwise, mark the pod as rejected (either Pending or Failed based on its previous status).
 	phase := corev1.PodPending
 	reason := forge.PodOffloadingBackOffReason
@@ -352,4 +369,13 @@ func (fpr *FallbackPodReflector) List() ([]interface{}, error) {
 	return virtualkubelet.List[virtualkubelet.Lister[*corev1.Pod], *corev1.Pod](
 		fpr.localPods,
 	)
+}
+
+func isDaemonset(pod *corev1.Pod) bool {
+	for i := range pod.OwnerReferences {
+		if pod.OwnerReferences[i].Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
 }
