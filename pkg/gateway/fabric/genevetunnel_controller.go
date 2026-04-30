@@ -72,6 +72,10 @@ func (r *GeneveTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("getting genevetunnel %q: %w", req.NamespacedName, err)
 	}
 
+	if !gt.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
 	klog.V(4).Infof("Reconciling genevetunnel %s", req.String())
 
 	if gt.Spec.InternalNodeRef == nil || gt.Spec.InternalFabricRef == nil {
@@ -85,8 +89,23 @@ func (r *GeneveTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
-	if !gt.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, gt)
+	var internalnode networkingv1beta1.InternalNode
+	if err := r.Get(ctx, types.NamespacedName{Name: gt.Spec.InternalNodeRef.Name}, &internalnode); err != nil {
+		return ctrl.Result{}, fmt.Errorf("getting internalnode %q: %w", gt.Spec.InternalNodeRef.Name, err)
+	}
+
+	// InternalNode is being deleted: clean up the geneve interface now.
+	// GeneveTunnel has no finalizer, so once the InternalNode controller deletes the tunnel objects,
+	// the geneveTunnel will be deleted immediately and we cannot delete the Geneve interface.
+	// But if we reconciled from deletion event on the InternalNode, chances are that InternalNode
+	// still has its finalizer at this point, so we can get the resource and delete the interface.
+	// Disclaimer: this is a best-effort attempt as we have to reconcile before the InternalNode controller
+	// cleanup its finalizer. For a more consistent outcome, we rely on the geneve deletion routine.
+	if !internalnode.DeletionTimestamp.IsZero() {
+		if err := geneve.EnsureGeneveInterfaceAbsence(internalnode.Spec.Interface.Gateway.Name); err != nil {
+			klog.Warningf("Unable to delete geneve interface for genevetunnel %s: %v", req, err)
+		}
+		return ctrl.Result{}, nil
 	}
 
 	var internalfabric networkingv1beta1.InternalFabric
@@ -97,11 +116,6 @@ func (r *GeneveTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting internalfabric %s/%s: %w",
 			gt.Spec.InternalFabricRef.Namespace, gt.Spec.InternalFabricRef.Name, err)
-	}
-
-	var internalnode networkingv1beta1.InternalNode
-	if err := r.Get(ctx, types.NamespacedName{Name: gt.Spec.InternalNodeRef.Name}, &internalnode); err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting internalnode %q: %w", gt.Spec.InternalNodeRef.Name, err)
 	}
 
 	var remoteIP *networkingv1beta1.IP
@@ -130,24 +144,6 @@ func (r *GeneveTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	klog.Infof("Enforced interface %s for genevetunnel %s", internalnode.Spec.Interface.Gateway.Name, req.String())
-
-	return ctrl.Result{}, nil
-}
-
-func (r *GeneveTunnelReconciler) handleDeletion(ctx context.Context, gt *networkingv1beta1.GeneveTunnel) (ctrl.Result, error) {
-	var internalnode networkingv1beta1.InternalNode
-	if err := r.Get(ctx, types.NamespacedName{Name: gt.Spec.InternalNodeRef.Name}, &internalnode); err != nil {
-		if apierrors.IsNotFound(err) {
-			klog.V(4).Infof("InternalNode %s already gone, skipping geneve interface cleanup for genevetunnel %s",
-				gt.Spec.InternalNodeRef.Name, gt.Name)
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, fmt.Errorf("getting internalnode %q: %w", gt.Spec.InternalNodeRef.Name, err)
-	}
-
-	if err := geneve.EnsureGeneveInterfaceAbsence(internalnode.Spec.Interface.Gateway.Name); err != nil {
-		klog.Warningf("Unable to delete geneve interface for genevetunnel %s: %v", gt.Name, err)
-	}
 
 	return ctrl.Result{}, nil
 }

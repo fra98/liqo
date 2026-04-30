@@ -32,7 +32,7 @@ import (
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/gateway"
 	"github.com/liqotech/liqo/pkg/gateway/concurrent"
-	"github.com/liqotech/liqo/pkg/gateway/fabric"
+	gwfabric "github.com/liqotech/liqo/pkg/gateway/fabric"
 	flagsutils "github.com/liqotech/liqo/pkg/utils/flags"
 	"github.com/liqotech/liqo/pkg/utils/mapper"
 	"github.com/liqotech/liqo/pkg/utils/restcfg"
@@ -40,7 +40,7 @@ import (
 
 var (
 	scheme  = runtime.NewScheme()
-	options = fabric.NewOptions(gateway.NewOptions())
+	options = gwfabric.NewOptions(gateway.NewOptions())
 )
 
 func init() {
@@ -58,7 +58,7 @@ func main() {
 
 	flagsutils.InitKlogFlags(cmd.Flags())
 	restcfg.InitFlags(cmd.Flags())
-	fabric.InitFlags(cmd.Flags(), options)
+	gwfabric.InitFlags(cmd.Flags(), options)
 
 	gateway.InitFlags(cmd.Flags(), options.GwOptions)
 	if err := gateway.MarkFlagsRequired(&cmd); err != nil {
@@ -103,7 +103,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to set up readyz probe: %w", err)
 	}
 
-	gtr, err := fabric.NewGeneveTunnelReconciler(
+	gtr, err := gwfabric.NewGeneveTunnelReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("genevetunnel-controller"),
@@ -128,7 +128,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		defer runnableGuest.Close()
 	}
 
-	runnableGeneveCleanup, err := fabric.NewRunnableGeneveCleanup(mgr.GetClient(), options.GeneveCleanupInterval)
+	runnableGeneveCleanup, err := gwfabric.NewRunnableGeneveCleanup(mgr.GetClient(), options.GeneveCleanupInterval)
 	if err != nil {
 		return fmt.Errorf("unable to create runnable geneve cleanup: %w", err)
 	}
